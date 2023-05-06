@@ -8,7 +8,7 @@ class TextEnv(gym.Env):
         super(TextEnv, self).__init__()
         self.action_space = spaces.Discrete(10)
         self.observation_space = spaces.Box(low=0, high=255, shape=(100,), dtype=int)
-        self.openai_api_key = "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"
+        self.openai_api_key = "your-openai-key"
         self.target_words = ["apple", "banana", "cherry", "date", "fig"]
         self.current_target = random.choice(self.target_words)
 

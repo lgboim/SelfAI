@@ -1,3 +1,8 @@
+"""
+Training script for SelfAI project.
+This script trains the DQN agent using the custom TextEnv environment.
+"""
+
 import numpy as np
 import torch
 from text_env5 import TextEnv

@@ -1,3 +1,8 @@
+"""
+DQN Agent implementation for SelfAI project.
+This script contains a DQN neural network model and a DQNAgent class for training and action selection.
+"""
+
 import numpy as np
 import random
 from collections import deque
