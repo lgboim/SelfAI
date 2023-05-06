@@ -2,15 +2,22 @@ import gym
 from gym import spaces
 import openai
 import random
+import logging
+
+
+# Set up logging
+logging.getLogger().setLevel(logging.INFO)
+logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
 
 class TextEnv(gym.Env):
     def __init__(self):
         super(TextEnv, self).__init__()
         self.action_space = spaces.Discrete(10)
         self.observation_space = spaces.Box(low=0, high=255, shape=(100,), dtype=int)
-        self.openai_api_key = "your-openai-key"
+        self.openai_api_key = ""
         self.target_words = ["apple", "banana", "cherry", "date", "fig"]
         self.current_target = random.choice(self.target_words)
+        self.previous_state = None  # Track the previous state
 
     def step(self, action):
         # Generate text based on the action
@@ -27,11 +34,17 @@ class TextEnv(gym.Env):
 
         return observation, reward, done, info
 
-    def reset(self):
-        return self.create_observation()
+    def reset(self, start_from_same_state=False):
+        if start_from_same_state and self.previous_state is not None:
+            return self.previous_state  # Start from the previous state
+
+        self.previous_state = self.create_observation()
+        return self.previous_state
 
     def render(self, mode='human'):
         pass
+
+    # Rest of the code...
 
     def generate_text(self, action):
         input_text = "I am a large language model."
@@ -70,6 +83,30 @@ class TextEnv(gym.Env):
         return observation
 
 
+def train_dqn(agent, env, episodes=2000, max_steps=1000):
+    best_avg_reward = -np.inf
+    for episode in range(episodes):
+        state = env.reset()
+        total_reward = 0
+        for step in range(max_steps):
+            action = agent.act(state)
+            next_state, reward, done, _ = env.step(action)
+            
+            # Log episode, step, action, and reward
+            logging.info(f"Episode: {episode}, Step: {step}, Action: {action}, Reward: {reward}")
+            
+            agent.remember(state, action, reward, next_state, done)
+            state = next_state
+            total_reward += reward
+            agent.learn()
+            if done:
+                break
+
+        agent.update_epsilon()
+
+        if episode % 10 == 0:
+            logging.info(f"Episode: {episode}, Total Reward: {total_reward}")
+            
 # Create an environment
 env = TextEnv()
 
