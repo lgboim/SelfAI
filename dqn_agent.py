@@ -74,7 +74,34 @@ class DQNAgent:
     def soft_update(self):
         tau = 0.001
         for target_param, local_param in zip(self.qnetwork_target.parameters(), self.qnetwork_local.parameters()):
-            target_param.data.copy_(tau*local_param.data + (1.0-tau)*target_param.data)
+            target_param.data.copy_(tau * local_param.data + (1 - tau) * target_param.data)
 
     def update_epsilon(self):
-        self.epsilon = max(self.epsilon_min, self.epsilon * self.epsilon_decay)
+        self.epsilon = max(self.epsilon_min, self.epsilon_decay * self.epsilon)
+
+    def save(self, filepath):
+        torch.save(self.qnetwork_local.state_dict(), filepath)
+
+    def load(self, filepath):
+        self.qnetwork_local.load_state_dict(torch.load(filepath))
+        self.qnetwork_target.load_state_dict(torch.load(filepath))
+
+if __name__ == "__main__":
+    env = TextEnv()
+    agent = DQNAgent(env.observation_space.shape[0], env.action_space.n)
+
+    for episode in range(1000):
+        state = env.reset()
+        done = False
+        while not done:
+            action = agent.act(state)
+            next_state, reward, done, info = env.step(action)
+            agent.remember(state, action, reward, next_state, done)
+            agent.learn()
+            state = next_state
+
+        if episode % 100 == 0:
+            print("Episode {}: {} reward".format(episode, reward))
+
+    agent.save("dqn_agent.pt")
+
