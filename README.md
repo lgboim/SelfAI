@@ -30,9 +30,9 @@ To get started with the DQN agent, ensure you have the following Python librarie
 
 1. Clone the repository to your local machine.
 2. Install the required dependencies (NumPy, PyTorch, gym, openai) if not already installed. You can use `pip` to install them:
-
-pip install numpy torch gym openai
-
+  ```
+    pip install numpy torch gym openai
+  ```
 3. Set up your OpenAI API key as an environment variable named OPENAI_API_KEY. Replace `"YOUR_API_KEY"` with your actual OpenAI API key:
 - Windows:
   ```
@@ -43,9 +43,9 @@ pip install numpy torch gym openai
   export OPENAI_API_KEY=YOUR_API_KEY
   ```
 4. Run the `train.py` script to train the DQN agent and observe its progress. You can execute the script using the following command:
-
+  ```
 python train.py
-
+  ```
 ## Contributing
 
 We'd love to have experienced developers join our journey in creating a versatile and powerful DQN agent. If you're interested in contributing, please check the open issues, submit new issues or feature requests, and submit pull requests with improvements and bug fixes.
