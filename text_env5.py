@@ -3,8 +3,14 @@ from gym import spaces
 import openai
 import random
 import logging
+import numpy as np
+from collections import deque
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Dense
+from tensorflow.keras.optimizers import Adam
 
 # Set up logging
+logging.getLogger().setLevel(logging.INFO)
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
 
 class TextEnv(gym.Env):
@@ -12,9 +18,10 @@ class TextEnv(gym.Env):
         super(TextEnv, self).__init__()
         self.action_space = spaces.Discrete(10)
         self.observation_space = spaces.Box(low=0, high=255, shape=(100,), dtype=int)
-        self.openai_api_key = ""
+        self.openai_api_key = "api-key"
         self.target_words = ["apple", "banana", "cherry", "date", "fig"]
         self.current_target = random.choice(self.target_words)
+        self.previous_state = None  # Track the previous state
 
     def step(self, action):
         # Generate text based on the action
@@ -32,16 +39,11 @@ class TextEnv(gym.Env):
         return observation, reward, done, info
 
     def reset(self, start_from_same_state=False):
-        if start_from_same_state:
-            # Reset the environment with the same initial state
-            # Implement the logic to reset the environment to the same initial state
-            pass
-        else:
-            # Reset the environment with a random initial state
-            # Implement the logic to reset the environment to a random initial state
-            pass
+        if start_from_same_state and self.previous_state is not None:
+            return self.previous_state  # Start from the previous state
 
-        return self.create_observation()
+        self.previous_state = self.create_observation()
+        return self.previous_state
 
     def render(self, mode='human'):
         pass
@@ -82,30 +84,51 @@ class TextEnv(gym.Env):
         observation = [0] * 100  # Replace with your own observation representation
         return observation
 
+class DQNAgent:
+    def __init__(self, state_size, action_size):
+        self.state_size = state_size
+        self.action_size = action_size
+        self.epsilon = 1.0  # Exploration rate
+        self.epsilon_decay = 0.99  # Epsilon decay rate
+        self.epsilon_min = 0.01  # Minimum epsilon value
+        self.gamma = 0.99  # Discount factor
+        self.learning_rate = 0.001  # Learning rate
+        self.model = self.build_model()
+        self.target_model = self.build_model()
+        self.memory = deque(maxlen=2000)
 
-def train_dqn(agent, env, episodes=2000, max_steps=1000):
-    best_avg_reward = -float('inf')
-    for episode in range(episodes):
-        state = env.reset()
-        total_reward = 0
-        for step in range(max_steps):
-            action = agent.act(state)
-            next_state, reward, done, _ = env.step(action)
-            
-            # Log episode, step, action, and reward
-            logging.info(f"Episode: {episode}, Step: {step}, Action: {action}, Reward: {reward}")
+    def build_model(self):
+        model = Sequential()
+        model.add(Dense(24, input_shape=(self.state_size,), activation="relu"))
+        model.add(Dense(24, activation="relu"))
+        model.add(Dense(self.action_size, activation="linear"))
+        model.compile(loss="mse", optimizer=Adam(learning_rate=self.learning_rate))
+        return model
 
-            agent.remember(state, action, reward, next_state, done)
-            state = next_state
-            total_reward += reward
-            agent.learn()
+    def remember(self, state, action, reward, next_state, done):
+        self.memory.append((state, action, reward, next_state, done))
+
+    def act(self, state):
+        if np.random.rand() <= self.epsilon:
+            return random.randrange(self.action_size)
+        q_values = self.model.predict(state)
+        return np.argmax(q_values[0])
+
+    def learn(self, batch_size=32):
+        if len(self.memory) < batch_size:
+            return
+        minibatch = random.sample(self.memory, batch_size)
+        for state, action, reward, next_state, done in minibatch:
+            target = self.target_model.predict(state)
             if done:
-                break
+                target[0][action] = reward
+            else:
+                target[0][action] = reward + self.gamma * np.amax(self.target_model.predict(next_state)[0])
+            self.model.fit(state, target, epochs=1, verbose=0)
 
-        agent.update_epsilon()
-
-        if episode % 10 == 0:
-            logging.info(f"Episode: {episode}, Total Reward: {total_reward}")
+    def update_epsilon(self):
+        if self.epsilon > self.epsilon_min:
+            self.epsilon *= self.epsilon_decay
 
 # Create an environment
 env = TextEnv()
@@ -113,10 +136,38 @@ env = TextEnv()
 # Set your OpenAI API key
 openai.api_key = env.openai_api_key
 
-# Create an instance of the DQNAgent
-state_size = env.observation_space.shape[0]
+# Set random seed for reproducibility
+np.random.seed(0)
+random.seed(0)
+
+# Set up the DQN agent
+state_size = len(env.create_observation())
 action_size = env.action_space.n
 agent = DQNAgent(state_size, action_size)
 
-# Train the DQN agent
-train_dqn(agent, env)
+# Training parameters
+episodes = 2000
+max_steps = 1000
+
+# Training loop
+agent.epsilon = 1.0
+for episode in range(episodes):
+    state = env.reset(start_from_same_state=True)
+    total_reward = 0
+    for step in range(max_steps):
+        action = agent.act(np.array([state]))
+        next_state, reward, done, _ = env.step(action)
+
+        # Log episode, step, action, reward, and target word
+        logging.info(f"Episode: {episode}, Step: {step}, Action: {action}, Reward: {reward}, Target Word: {env.current_target}")
+
+        agent.remember(np.array([state]), action, reward, np.array([next_state]), done)
+        state = next_state
+        total_reward += reward
+        agent.learn()
+        agent.update_epsilon()
+        if done:
+            break
+
+    if episode % 10 == 0:
+        logging.info(f"Episode: {episode}, Total Reward: {total_reward}")

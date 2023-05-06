@@ -16,16 +16,15 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(me
 def train_dqn(agent, env, episodes=2000, max_steps=1000):
     best_avg_reward = -np.inf
     for episode in range(episodes):
-        env = TextEnv()  # Create a new environment for each episode
-        state = env.reset(start_from_same_state=True)  # Start from the same state
+        state = env.reset()
         total_reward = 0
         for step in range(max_steps):
             action = agent.act(state)
             next_state, reward, done, _ = env.step(action)
-            
-            # Log episode, step, action, and reward
-            logging.info(f"Episode: {episode}, Step: {step}, Action: {action}, Reward: {reward}")
-            
+
+            # Log episode, step, action, reward, and target word
+            logging.info(f"Episode: {episode}, Step: {step}, Action: {action}, Reward: {reward}, Target Word: {env.current_target}")
+
             agent.remember(state, action, reward, next_state, done)
             state = next_state
             total_reward += reward
@@ -36,7 +35,10 @@ def train_dqn(agent, env, episodes=2000, max_steps=1000):
         agent.update_epsilon()
 
         if episode % 10 == 0:
-            logging.info(f"Episode: {episode}, Total Reward: {total_reward}")
+            avg_reward = total_reward / max_steps
+            if avg_reward > best_avg_reward:
+                best_avg_reward = avg_reward
+            logging.info(f"Episode: {episode}, Total Reward: {total_reward}, Avg Reward: {avg_reward}, Best Avg Reward: {best_avg_reward}")
             
 # Create an environment
 env = TextEnv()
