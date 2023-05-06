@@ -4,9 +4,7 @@ import openai
 import random
 import logging
 
-
 # Set up logging
-logging.getLogger().setLevel(logging.INFO)
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
 
 class TextEnv(gym.Env):
@@ -17,7 +15,6 @@ class TextEnv(gym.Env):
         self.openai_api_key = "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"
         self.target_words = ["apple", "banana", "cherry", "date", "fig"]
         self.current_target = random.choice(self.target_words)
-        self.previous_state = None  # Track the previous state
 
     def step(self, action):
         # Generate text based on the action
@@ -35,16 +32,19 @@ class TextEnv(gym.Env):
         return observation, reward, done, info
 
     def reset(self, start_from_same_state=False):
-        if start_from_same_state and self.previous_state is not None:
-            return self.previous_state  # Start from the previous state
+        if start_from_same_state:
+            # Reset the environment with the same initial state
+            # Implement the logic to reset the environment to the same initial state
+            pass
+        else:
+            # Reset the environment with a random initial state
+            # Implement the logic to reset the environment to a random initial state
+            pass
 
-        self.previous_state = self.create_observation()
-        return self.previous_state
+        return self.create_observation()
 
     def render(self, mode='human'):
         pass
-
-    # Rest of the code...
 
     def generate_text(self, action):
         input_text = "I am a large language model."
@@ -84,7 +84,7 @@ class TextEnv(gym.Env):
 
 
 def train_dqn(agent, env, episodes=2000, max_steps=1000):
-    best_avg_reward = -np.inf
+    best_avg_reward = -float('inf')
     for episode in range(episodes):
         state = env.reset()
         total_reward = 0
@@ -94,7 +94,7 @@ def train_dqn(agent, env, episodes=2000, max_steps=1000):
             
             # Log episode, step, action, and reward
             logging.info(f"Episode: {episode}, Step: {step}, Action: {action}, Reward: {reward}")
-            
+
             agent.remember(state, action, reward, next_state, done)
             state = next_state
             total_reward += reward
@@ -106,11 +106,17 @@ def train_dqn(agent, env, episodes=2000, max_steps=1000):
 
         if episode % 10 == 0:
             logging.info(f"Episode: {episode}, Total Reward: {total_reward}")
-            
+
 # Create an environment
 env = TextEnv()
 
 # Set your OpenAI API key
 openai.api_key = env.openai_api_key
 
-# Use the environment and train/test the agent as desired
+# Create an instance of the DQNAgent
+state_size = env.observation_space.shape[0]
+action_size = env.action_space.n
+agent = DQNAgent(state_size, action_size)
+
+# Train the DQN agent
+train_dqn(agent, env)
