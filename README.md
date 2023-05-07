@@ -24,6 +24,7 @@ To get started with the DQN agent, ensure you have the following Python librarie
 - `text_env5.py`: Contains the `TextEnv` class, a custom text-based environment that inherits from the `gym.Env` class.
 - `train.py`: The main script to train the DQN agent within the text-based environment.
 - `dqn_agent.py`: Defines the DQN neural network architecture and DQNAgent class, which manages agent actions, learning, and memory.
+- `replay_buffer.py`: Contains the `PrioritizedReplayBuffer` class for experience replay with prioritized sampling.
 - `observations.py`: Contains the `create_observation` function for processing observations from the environment.
 
 ## Getting Started
@@ -31,9 +32,9 @@ To get started with the DQN agent, ensure you have the following Python librarie
 1. Clone the repository to your local machine.
 2. Install the required dependencies (NumPy, PyTorch, gym, openai) if not already installed. You can use `pip` to install them:
   ```
-    pip install numpy torch gym openai
+  pip install numpy torch gym openai
   ```
-3. Set up your OpenAI API key as an environment variable named OPENAI_API_KEY. Replace `"YOUR_API_KEY"` with your actual OpenAI API key:
+3. Set up your OpenAI API key as an environment variable named `OPENAI_API_KEY`. Replace `"YOUR_API_KEY"` with your actual OpenAI API key:
 - Windows:
   ```
   set OPENAI_API_KEY=YOUR_API_KEY
@@ -46,7 +47,7 @@ To get started with the DQN agent, ensure you have the following Python librarie
   ```
 python train.py
   ```
+
 ## Contributing
 
 We'd love to have experienced developers join our journey in creating a versatile and powerful DQN agent. If you're interested in contributing, please check the open issues, submit new issues or feature requests, and submit pull requests with improvements and bug fixes.
-
