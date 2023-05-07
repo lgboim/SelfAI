@@ -8,6 +8,12 @@ from collections import deque
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import Dense
 from tensorflow.keras.optimizers import Adam
+from sklearn.metrics.pairwise import cosine_similarity
+import gensim.downloader as api
+import time
+
+# Load pre-trained word vectors
+word_vectors = api.load("glove-wiki-gigaword-50")
 
 # Set up logging
 logging.getLogger().setLevel(logging.INFO)
@@ -18,7 +24,7 @@ class TextEnv(gym.Env):
         super(TextEnv, self).__init__()
         self.action_space = spaces.Discrete(10)
         self.observation_space = spaces.Box(low=0, high=255, shape=(100,), dtype=int)
-        self.openai_api_key = "api-key"
+        self.openai_api_key = "openai-key"
         self.target_words = ["apple", "banana", "cherry", "date", "fig"]
         self.current_target = random.choice(self.target_words)
         self.previous_state = None  # Track the previous state
@@ -65,18 +71,55 @@ class TextEnv(gym.Env):
         generated_text = response.choices[0].text.strip()
         return generated_text
 
+    def extract_words(self, text):
+        words = text.lower().split()
+        words = [word.strip('.,!?:;()[]') for word in words]
+        return words
+
+    def calculate_word_similarity_score(self, matching_words):
+        num_matching_words = len(matching_words)
+        num_target_words = len(self.target_words)
+        
+        if num_target_words == 0:
+            return 0.0
+        
+        return num_matching_words / num_target_words
+
     def compute_reward(self, text):
-        # Implement your reward computation logic here
-        # You can compare the generated text with the current target word
-        similarity = self.compute_similarity(text, self.current_target)
-        reward = similarity * 10
+        words = self.extract_words(text)
+        matching_words = [word for word in words if word in self.target_words]
+
+        # Calculate the word similarity score between the generated text and the target words.
+        word_similarity_score = self.calculate_word_similarity_score(matching_words)
+
+        # Calculate the length penalty.
+        length_penalty = self.calculate_length_penalty(len(words))
+
+        # Calculate the fluency score.
+        fluency_score = self.calculate_fluency_score(text)
+
+        # Calculate the accuracy score.
+        accuracy_score = self.calculate_accuracy_score(text)
+
+        # Calculate the total reward.
+        reward = word_similarity_score * 0.5 + length_penalty * 0.2 + fluency_score * 0.2 + accuracy_score * 0.1
+
         return reward
 
-    def compute_similarity(self, text1, text2):
-        # Implement your similarity computation logic here
-        # This is just a placeholder implementation, you can use any suitable method or library
-        similarity = 0.5
-        return similarity
+    def calculate_length_penalty(self, text_length):
+        max_length = 50
+        penalty_factor = 0.02
+        if text_length > max_length:
+            return 1.0 - (text_length - max_length) * penalty_factor
+        return 1.0
+
+    def calculate_fluency_score(self, text):
+        # Your fluency score calculation logic goes here
+        return 0.9
+
+    def calculate_accuracy_score(self, text):
+        # Your accuracy score calculation logic goes here
+        return 0.8
 
     def create_observation(self):
         # Implement your observation creation logic here
@@ -148,9 +191,14 @@ agent = DQNAgent(state_size, action_size)
 # Training parameters
 episodes = 2000
 max_steps = 1000
+update_target_every = 10
+early_stopping_patience = 10
 
 # Training loop
 agent.epsilon = 1.0
+best_total_reward = -np.inf
+stagnation_counter = 0
+
 for episode in range(episodes):
     state = env.reset(start_from_same_state=True)
     total_reward = 0
@@ -159,15 +207,30 @@ for episode in range(episodes):
         next_state, reward, done, _ = env.step(action)
 
         # Log episode, step, action, reward, and target word
-        logging.info(f"Episode: {episode}, Step: {step}, Action: {action}, Reward: {reward}, Target Word: {env.current_target}")
+        logging.info(f"Episode: {episode}, Step: {step}, Action: {action}, Reward: {reward}, Total Reward: {total_reward}")
 
         agent.remember(np.array([state]), action, reward, np.array([next_state]), done)
         state = next_state
         total_reward += reward
         agent.learn()
         agent.update_epsilon()
+        time.sleep(0.1)  # Add a short delay of 0.1 seconds between steps
+
         if done:
+            break
+
+    if episode % update_target_every == 0:
+        agent.update_target_model()
+
+    if total_reward > best_total_reward:
+        best_total_reward = total_reward
+        stagnation_counter = 0
+    else:
+        stagnation_counter += 1
+        if stagnation_counter >= early_stopping_patience:
             break
 
     if episode % 10 == 0:
         logging.info(f"Episode: {episode}, Total Reward: {total_reward}")
+
+# Add methods to save/load the model, if needed

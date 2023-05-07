@@ -6,9 +6,11 @@ This script trains the DQN agent using the custom TextEnv environment.
 import numpy as np
 import torch
 from text_env5 import TextEnv
-from dqn_agent import DQNAgent
+from dqn_agent import DoubleDQNAgent
+from replay_buffer import PrioritizedReplayBuffer
 import logging
 import openai
+import gym
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
@@ -29,6 +31,7 @@ def train_dqn(agent, env, episodes=2000, max_steps=1000):
             state = next_state
             total_reward += reward
             agent.learn()
+
             if done:
                 break
 
@@ -39,18 +42,30 @@ def train_dqn(agent, env, episodes=2000, max_steps=1000):
             if avg_reward > best_avg_reward:
                 best_avg_reward = avg_reward
             logging.info(f"Episode: {episode}, Total Reward: {total_reward}, Avg Reward: {avg_reward}, Best Avg Reward: {best_avg_reward}")
-            
+
 # Create an environment
 env = TextEnv()
 
 # Set your OpenAI API key
 openai.api_key = env.openai_api_key
 
-# Use the environment and train/test the agent as desired
+# Create a larger training dataset
+training_dataset = generate_training_data(env, episodes=10000, max_steps=1000)
 
-if __name__ == "__main__":
-    state_size = 1
-    action_size = 4
-    env = TextEnv()
-    agent = DQNAgent(state_size, action_size)
-    train_dqn(agent, env)
+# Create a Gym environment using the training dataset
+gym_env = gym.make('CustomEnv-v0', training_dataset=training_dataset)
+
+# Pre-training
+pretrain_episodes = 1000
+pretrain_max_steps = 1000
+pretrain_agent = DoubleDQNAgent(env.observation_space.shape[0], env.action_space.n)
+pretrain_buffer = PrioritizedReplayBuffer()  # Use PrioritizedReplayBuffer
+train_dqn(pretrain_agent, gym_env, episodes=pretrain_episodes, max_steps=pretrain_max_steps)
+
+# Fine-tuning
+fine_tune_episodes = 2000
+fine_tune_max_steps = 1000
+fine_tune_agent = DoubleDQNAgent(env.observation_space.shape[0], env.action_space.n)
+fine_tune_buffer = PrioritizedReplayBuffer()  # Use PrioritizedReplayBuffer
+fine_tune_agent.q_network.load_state_dict(pretrain_agent.q_network.state_dict())
+train_dqn(fine_tune_agent, gym_env, episodes=fine_tune_episodes, max_steps=fine_tune_max_steps)

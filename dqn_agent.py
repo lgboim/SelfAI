@@ -4,109 +4,124 @@ This script contains a DQN neural network model and a DQNAgent class for trainin
 """
 
 import numpy as np
-import random
-from collections import deque
 import torch
 import torch.nn as nn
 import torch.optim as optim
+from torch.utils.data import DataLoader, SubsetRandomSampler
+from collections import deque, namedtuple
 
-class DQN(nn.Module):
-    def __init__(self, state_size, action_size):
-        super(DQN, self).__init__()
-        self.fc1 = nn.Linear(state_size, 64)
-        self.fc2 = nn.Linear(64, 64)
-        self.fc3 = nn.Linear(64, action_size)
-
-    def forward(self, x):
-        x = torch.relu(self.fc1(x))
-        x = torch.relu(self.fc2(x))
-        return self.fc3(x)
+Transition = namedtuple("Transition", ["state", "action", "reward", "next_state", "done"])
 
 class DQNAgent:
-    def __init__(self, state_size, action_size, memory_size=2000, batch_size=64, gamma=0.99, epsilon=1.0, epsilon_decay=0.995, epsilon_min=0.01, learning_rate=0.001):
+    def __init__(self, state_size, action_size, learning_rate=1e-3, discount_factor=0.99,
+                 epsilon_start=1.0, epsilon_end=0.01, epsilon_decay=0.995,
+                 memory_size=10000, batch_size=64, prioritized_experience_replay_alpha=0.6,
+                 prioritized_experience_replay_beta=0.4, prioritized_experience_replay_beta_increment=1e-4):
         self.state_size = state_size
         self.action_size = action_size
+        self.learning_rate = learning_rate
+        self.discount_factor = discount_factor
+        self.epsilon = epsilon_start
+        self.epsilon_end = epsilon_end
+        self.epsilon_decay = epsilon_decay
         self.memory = deque(maxlen=memory_size)
         self.batch_size = batch_size
-        self.gamma = gamma
-        self.epsilon = epsilon
-        self.epsilon_decay = epsilon_decay
-        self.epsilon_min = epsilon_min
-        self.learning_rate = learning_rate
+        self.prioritized_experience_replay_alpha = prioritized_experience_replay_alpha
+        self.prioritized_experience_replay_beta = prioritized_experience_replay_beta
+        self.prioritized_experience_replay_beta_increment = prioritized_experience_replay_beta_increment
 
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-        self.qnetwork_local = DQN(state_size, action_size).to(self.device)
-        self.qnetwork_target = DQN(state_size, action_size).to(self.device)
-        self.optimizer = optim.Adam(self.qnetwork_local.parameters(), lr=learning_rate)
-
-    def remember(self, state, action, reward, next_state, done):
-        self.memory.append((state, action, reward, next_state, done))
+        # Q-Network and Target Network
+        self.q_network = DQN(state_size, action_size)
+        self.target_network = DQN(state_size, action_size)
+        self.optimizer = optim.Adam(self.q_network.parameters(), lr=self.learning_rate)
+        self.loss_function = nn.MSELoss()
+        self.update_target_network()
 
     def act(self, state):
-        if np.random.rand() <= self.epsilon:
-            return random.choice(range(self.action_size))
-        state = torch.from_numpy(state).float().unsqueeze(0).to(self.device)
-        self.qnetwork_local.eval()
-        with torch.no_grad():
-            action_values = self.qnetwork_local(state)
-        self.qnetwork_local.train()
-        return np.argmax(action_values.cpu().data.numpy())
+        if np.random.rand() < self.epsilon:
+            return np.random.choice(self.action_size)
+        else:
+            state = torch.FloatTensor(state).unsqueeze(0)
+            with torch.no_grad():
+                return np.argmax(self.q_network(state).numpy())
 
-    def learn(self):
+    def remember(self, state, action, reward, next_state, done):
+        max_priority = max(self.memory, default=1, key=lambda transition: transition[5]) if self.memory else 1
+        self.memory.append(Transition(state, action, reward, next_state, done, max_priority ** self.prioritized_experience_replay_alpha))
+
+    def replay(self):
         if len(self.memory) < self.batch_size:
             return
 
-        minibatch = random.sample(self.memory, self.batch_size)
-        states, actions, rewards, next_states, dones = zip(*minibatch)
-        states = torch.from_numpy(np.vstack(states)).float().to(self.device)
-        actions = torch.from_numpy(np.vstack(actions)).long().to(self.device)
-        rewards = torch.from_numpy(np.vstack(rewards)).float().to(self.device)
-        next_states = torch.from_numpy(np.vstack(next_states)).float().to(self.device)
-        dones = torch.from_numpy(np.vstack(dones).astype(np.uint8)).float().to(self.device)
+        indices, weights = self.sample_prioritized_transitions()
+        transitions = [self.memory[idx] for idx in indices]
+        states, actions, rewards, next_states, dones = zip(*[(t.state, t.action, t.reward, t.next_state, t.done) for t in transitions])
 
-        Q_targets_next = self.qnetwork_target(next_states).detach().max(1)[0].unsqueeze(1)
-        Q_targets = rewards + (self.gamma * Q_targets_next * (1 - dones))
+        states = torch.FloatTensor(states)
+        actions = torch.tensor(actions, dtype=torch.long).unsqueeze(1)
+        rewards = torch.FloatTensor(rewards).unsqueeze(1)
+        next_states = torch.FloatTensor(next_states)
+        dones = torch.FloatTensor(dones).unsqueeze(1)
+        weights = torch.FloatTensor(weights).unsqueeze(1)
 
-        Q_expected = self.qnetwork_local(states).gather(1, actions)
-        loss = nn.MSELoss()(Q_expected, Q_targets)
+        q_values = self.q_network(states).gather(1, actions)
+        next_q_values = self.target_network(next_states).detach().max
+        
+        # Double DQN update
+        next_actions = self.q_network(next_states).detach().argmax(1).unsqueeze(1)
+        next_q_values = self.target_network(next_states).gather(1, next_actions)
+
+        target_q_values = rewards + self.discount_factor * next_q_values * (1 - dones)
+
+        # Compute the TD error and update the priorities
+        td_errors = (target_q_values - q_values).abs().detach().numpy().squeeze()
+        self.update_priorities(indices, td_errors)
+
+        # Prioritized Experience Replay weight update
+        self.prioritized_experience_replay_beta += self.prioritized_experience_replay_beta_increment
+        self.prioritized_experience_replay_beta = min(self.prioritized_experience_replay_beta, 1)
+
+        # Compute the loss and perform the optimization step
+        loss = (weights * self.loss_function(q_values, target_q_values.detach())).mean()
         self.optimizer.zero_grad()
         loss.backward()
         self.optimizer.step()
 
-        self.soft_update()
+        # Decay epsilon
+        self.epsilon *= self.epsilon_decay
+        self.epsilon = max(self.epsilon, self.epsilon_end)
 
-    def soft_update(self):
-        tau = 0.001
-        for target_param, local_param in zip(self.qnetwork_target.parameters(), self.qnetwork_local.parameters()):
-            target_param.data.copy_(tau * local_param.data + (1 - tau) * target_param.data)
+    def update_target_network(self):
+        self.target_network.load_state_dict(self.q_network.state_dict())
 
-    def update_epsilon(self):
-        self.epsilon = max(self.epsilon_min, self.epsilon_decay * self.epsilon)
+    def sample_prioritized_transitions(self):
+        total_priority = sum(transition.priority for transition in self.memory)
+        probabilities = [transition.priority / total_priority for transition in self.memory]
 
-    def save(self, filepath):
-        torch.save(self.qnetwork_local.state_dict(), filepath)
+        indices = np.random.choice(range(len(self.memory)), size=self.batch_size, p=probabilities, replace=False)
+        weights = [(len(self.memory) * p) ** -self.prioritized_experience_replay_beta for p in probabilities]
 
-    def load(self, filepath):
-        self.qnetwork_local.load_state_dict(torch.load(filepath))
-        self.qnetwork_target.load_state_dict(torch.load(filepath))
+        return indices, weights
 
-if __name__ == "__main__":
-    env = TextEnv()
-    agent = DQNAgent(env.observation_space.shape[0], env.action_space.n)
+    def update_priorities(self, indices, td_errors):
+        for idx, td_error in zip(indices, td_errors):
+            transition = self.memory[idx]
+            updated_priority = (abs(td_error) + 1e-5) ** self.prioritized_experience_replay_alpha
+            self.memory[idx] = transition._replace(priority=updated_priority)
 
-    for episode in range(1000):
-        state = env.reset()
-        done = False
-        while not done:
-            action = agent.act(state)
-            next_state, reward, done, info = env.step(action)
-            agent.remember(state, action, reward, next_state, done)
-            agent.learn()
-            state = next_state
+class DQN(nn.Module):
+    def __init__(self, state_size, action_size):
+        super(DQN, self).__init__()
+        self.state_size = state_size
+        self.action_size = action_size
 
-        if episode % 100 == 0:
-            print("Episode {}: {} reward".format(episode, reward))
+        self.model = nn.Sequential(
+            nn.Linear(self.state_size, 128),
+            nn.ReLU(),
+            nn.Linear(128, 256),
+            nn.ReLU(),
+            nn.Linear(256, self.action_size)
+        )
 
-    agent.save("dqn_agent.pt")
-
+    def forward(self, x):
+        return self.model(x)
